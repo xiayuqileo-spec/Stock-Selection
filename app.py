@@ -39,13 +39,14 @@ def make_app():
         [(r"/", MainHandler)],
         template_path=os.path.join(ROOT, "templates"),
         static_path=os.path.join(ROOT, "static"),
-        debug=True,
+        debug=os.environ.get("DEBUG", "").lower() in ("1", "true", "yes"),
     )
 
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 9990))
     app = make_app()
     server = tornado.httpserver.HTTPServer(app)
-    server.listen(9990)
-    print("选股已启动：http://localhost:9990/")
+    server.listen(port, address="0.0.0.0")
+    print(f"选股已启动：http://0.0.0.0:{port}/")
     tornado.ioloop.IOLoop.current().start()
