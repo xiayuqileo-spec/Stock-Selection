@@ -39,4 +39,16 @@ python app.py
 https://你的服务地址.onrender.com/?code=600519
 ```
 
+## 私密访问
+
+网站支持浏览器原生账号密码保护。为避免密码泄露，密码不要写入 GitHub，请在 Render 设置环境变量：
+
+1. 打开 Render 的 `stock-selection` 服务。
+2. 进入 `Environment`。
+3. 设置 `SITE_USERNAME`，例如 `admin`。
+4. 设置 `SITE_PASSWORD` 为你的访问密码。
+5. 点击 `Save Changes`，等待服务重新部署。
+
+设置 `SITE_PASSWORD` 后，访问网页会弹出账号密码窗口；未设置时默认公开访问。
+
 行情可能存在延迟，分析结果不构成投资建议。
