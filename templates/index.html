@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>选股</title>
+  <script src="/static/bokeh-3.8.1.min.js"></script>
+  <style>
+  *{box-sizing:border-box} body{margin:0;background:#f1f5f9;color:#172033;font-family:"Microsoft YaHei",Arial,sans-serif}
+  .top{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;padding:28px 20px}.wrap{max-width:1280px;margin:auto}
+  h1{margin:0 0 8px}.sub{color:#bfdbfe}.search{display:flex;gap:10px;margin-top:22px;max-width:600px}
+  input{flex:1;padding:13px 16px;border:0;border-radius:7px;font-size:17px}button{border:0;border-radius:7px;background:#f59e0b;color:#111827;font-weight:700;padding:0 22px;cursor:pointer}
+  main{padding:22px 20px}.alert{padding:14px;border-radius:7px;background:#fee2e2;color:#991b1b;margin-bottom:18px}
+  .hero{background:#fff;border-radius:10px;padding:20px;display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;box-shadow:0 1px 4px #cbd5e1}
+  .hero h2{margin:0 0 7px}.price{text-align:right;font-size:32px;font-weight:700}.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .card,.panel{background:#fff;border-radius:9px;padding:16px;box-shadow:0 1px 4px #d7dee8;margin-bottom:18px}.label{color:#64748b;font-size:13px}.value{font-size:20px;font-weight:700;margin-top:7px}
+  .positive{color:#dc2626}.negative{color:#16a34a}.neutral{color:#475569}.signals{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .signal{border-left:4px solid #94a3b8;background:#f8fafc;padding:12px;border-radius:4px}.signal.positive{border-color:#dc2626}.signal.negative{border-color:#16a34a}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #e2e8f0;padding:10px;text-align:left}th{background:#f8fafc}
+  .tables{display:grid;grid-template-columns:1fr 1fr;gap:14px}.note{color:#64748b;font-size:13px}
+  @media(max-width:800px){.cards,.signals,.tables{grid-template-columns:1fr}.hero{display:block}.price{text-align:left;margin-top:14px}.search{display:grid}}
+  </style>
+</head>
+<body>
+  <header class="top"><div class="wrap">
+    <h1>选股</h1><div class="sub">网络行情、价格趋势、K线与技术指标结论</div>
+    <form class="search" method="get"><input name="code" value="{{ code }}" maxlength="6" pattern="[0-9]{6}" placeholder="输入股票代码，例如：600519" required><button>获取实时分析</button></form>
+  </div></header>
+  <main class="wrap">
+    {% if error %}<div class="alert">{{ error }}</div>{% end %}
+    {% if result %}
+      {% set quote = result["quote"] %}{% set summary = result["summary"] %}
+      <section class="hero"><div><h2>{{ quote["name"] }} <small>{{ quote["code"] }}</small></h2><div class="label">行情更新时间：{{ quote["updated_at"] }}　指标数据日：{{ summary["date"] }}</div></div>
+      <div class="price {{ 'positive' if quote['change_percent'] >= 0 else 'negative' }}">{{ quote["price"] }}<div style="font-size:17px">{{ quote["change"] }} / {{ quote["change_percent"] }}%</div></div></section>
+      <section class="cards">
+        <div class="card"><div class="label">今开 / 最高 / 最低</div><div class="value">{{ quote["open"] }} / {{ quote["high"] }} / {{ quote["low"] }}</div></div>
+        <div class="card"><div class="label">成交额 / 换手率</div><div class="value">{{ round(quote["amount"]/10000,2) }} 亿 / {{ quote["turnover"] }}%</div></div>
+        <div class="card"><div class="label">市盈率 / 市净率</div><div class="value">{{ quote["pe"] }} / {{ quote["pb"] }}</div></div>
+        <div class="card"><div class="label">总市值 / 量比</div><div class="value">{{ quote["market_cap"] }} 亿 / {{ quote["volume_ratio"] }}</div></div>
+      </section>
+      <section class="panel"><h3>综合技术结论：<span class="{{ summary['verdict_tone'] }}">{{ summary["verdict"] }}</span></h3><div class="signals">
+      {% for signal in summary["signals"] %}<div class="signal {{ signal['tone'] }}"><b>{{ signal["label"] }} · {{ signal["result"] }}</b><div>{{ signal["detail"] }}</div></div>{% end %}
+      </div></section>
+      <section class="tables">
+        <div class="panel"><table><tr><th>近20日涨跌</th><td>{{ summary["change_20"] }}%</td><th>近60日涨跌</th><td>{{ summary["change_60"] }}%</td></tr><tr><th>MA20</th><td>{{ summary["ma20"] }}</td><th>MA50</th><td>{{ summary["ma50"] }}</td></tr><tr><th>MA200</th><td>{{ summary["ma200"] }}</td><th>RSI(14)</th><td>{{ summary["rsi"] }}</td></tr><tr><th>60日高/低</th><td colspan="3">{{ summary["high_60"] }} / {{ summary["low_60"] }}</td></tr></table></div>
+        <div class="panel"><table><tr><th>MACD DIF</th><td>{{ summary["macd"] }}</td><th>DEA</th><td>{{ summary["macds"] }}</td></tr><tr><th>MACD柱</th><td>{{ summary["macdh"] }}</td><th>ATR</th><td>{{ summary["atr_percent"] }}%</td></tr><tr><th>布林上/中/下</th><td colspan="3">{{ summary["boll_upper"] }} / {{ summary["boll_middle"] }} / {{ summary["boll_lower"] }}</td></tr><tr><th>涨停 / 跌停</th><td colspan="3">{{ quote["limit_up"] }} / {{ quote["limit_down"] }}</td></tr></table></div>
+      </section>
+      <section class="panel">{% raw result["chart"]["div"] %}{% raw result["chart"]["script"] %}</section>
+      <p class="note">行情来自公开网络数据源，可能存在延迟。技术指标仅作辅助分析，不构成投资建议。</p>
+    {% end %}
+  </main>
+</body>
+</html>
