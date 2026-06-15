@@ -11,6 +11,7 @@ from bokeh.layouts import column
 from bokeh.models import ColumnDataSource, HoverTool, Span
 from bokeh.plotting import figure
 
+from data_sources import fetch_extra_data
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -98,6 +99,12 @@ def calculate_indicators(data):
     std = data["close"].rolling(20, min_periods=1).std().fillna(0)
     data["boll_ub"] = data["boll"] + 2 * std
     data["boll_lb"] = data["boll"] - 2 * std
+    low_9 = data["low"].rolling(9, min_periods=1).min()
+    high_9 = data["high"].rolling(9, min_periods=1).max()
+    rsv = (data["close"] - low_9) / (high_9 - low_9).replace(0, np.nan) * 100
+    data["kdjk"] = rsv.ewm(alpha=1 / 3, adjust=False).mean()
+    data["kdjd"] = data["kdjk"].ewm(alpha=1 / 3, adjust=False).mean()
+    data["kdjj"] = 3 * data["kdjk"] - 2 * data["kdjd"]
     return data.fillna(0)
 
 
@@ -167,7 +174,155 @@ def build_summary(data):
         "boll_upper": round(float(latest["boll_ub"]), 2), "boll_middle": round(float(latest["boll"]), 2),
         "boll_lower": round(float(latest["boll_lb"]), 2), "high_60": round(float(data.tail(60)["high"].max()), 2),
         "low_60": round(float(data.tail(60)["low"].min()), 2), "verdict": verdict,
-        "verdict_tone": tone, "signals": signals,
+        "verdict_tone": tone, "signals": signals, "raw_score": score,
+        "kdjk": round(float(latest["kdjk"]), 2), "kdjd": round(float(latest["kdjd"]), 2),
+        "kdjj": round(float(latest["kdjj"]), 2), "volume_ratio": round(volume_ratio, 2),
+    }
+
+
+def _range(low, high):
+    low, high = sorted((max(float(low), 0), max(float(high), 0)))
+    return f"{low:.2f} - {high:.2f}"
+
+
+def _metric(financials, name, unit=""):
+    value = financials.get(name)
+    if value is None:
+        return "数据缺失"
+    if unit == "亿":
+        return f"{value / 100000000:.2f} 亿"
+    return f"{value:.2f}{unit}"
+
+
+def build_report(quote, data, summary, extra):
+    latest = data.iloc[-1]
+    close = float(latest["close"])
+    atr = max(float(latest["atr"]), close * 0.01)
+    ma20, ma50 = float(latest["ma20"]), float(latest["ma50"])
+    low_20 = float(data.tail(20)["low"].min())
+    low_60 = float(data.tail(60)["low"].min())
+    high_20 = float(data.tail(20)["high"].max())
+    high_60 = float(data.tail(60)["high"].max())
+    support = max(low_60, min(low_20, ma20, float(latest["boll_lb"])))
+    pressure = min(x for x in (high_20, high_60, float(latest["boll_ub"])) if x > close) if any(
+        x > close for x in (high_20, high_60, float(latest["boll_ub"]))
+    ) else close + 2 * atr
+
+    technical_score = max(1.0, min(10.0, 5.5 + summary["raw_score"] * 0.75))
+    valuation_score = 5.0
+    valuation_notes = []
+    if quote["pe"] > 0:
+        valuation_score += 1.2 if quote["pe"] < 15 else 0.4 if quote["pe"] < 30 else -1.0 if quote["pe"] > 60 else 0
+    if quote["pb"] > 0:
+        valuation_score += 0.8 if quote["pb"] < 2 else -0.8 if quote["pb"] > 8 else 0
+    valuation_score = max(1.0, min(10.0, valuation_score))
+    fund_score = max(2.0, min(8.0, 5 + (quote["volume_ratio"] - 1) * 1.2 + min(quote["turnover"], 5) * 0.15))
+    risk_score = max(2.0, min(8.0, 7.2 - summary["atr_percent"] * 0.65))
+    profile, financials, notices = extra["profile"], extra["financials"], extra["notices"]
+    fundamental_score = 4.5
+    revenue_growth = financials.get("营业总收入增长率")
+    profit_growth = financials.get("归属母公司净利润增长率")
+    roe = financials.get("净资产收益率(ROE)")
+    debt = financials.get("资产负债率")
+    cash = financials.get("经营现金流量净额")
+    if revenue_growth is not None:
+        fundamental_score += 0.8 if revenue_growth > 10 else -0.5 if revenue_growth < 0 else 0.3
+    if profit_growth is not None:
+        fundamental_score += 1.0 if profit_growth > 10 else -0.8 if profit_growth < 0 else 0.3
+    if roe is not None:
+        fundamental_score += 0.8 if roe > 15 else -0.4 if roe < 6 else 0.2
+    if debt is not None:
+        fundamental_score += 0.5 if debt < 45 else -0.7 if debt > 70 else 0
+    if cash is not None:
+        fundamental_score += 0.4 if cash > 0 else -0.7
+    fundamental_score = max(1.0, min(10.0, fundamental_score))
+    industry_score = 5.2 if profile.get("所属行业") else 4.5
+    scores = {
+        "基本面": round(fundamental_score, 1), "行业前景": industry_score, "估值吸引力": round(valuation_score, 1),
+        "技术走势": round(technical_score, 1), "资金面": round(fund_score, 1),
+        "风险控制": round(risk_score, 1),
+    }
+    overall = round(sum(scores.values()) / len(scores), 1)
+    scores["综合得分"] = overall
+
+    if overall >= 7.8 and technical_score >= 7:
+        advice = "强烈买入"
+    elif overall >= 6.3 and technical_score >= 6:
+        advice = "谨慎买入"
+    elif overall < 4.2:
+        advice = "回避"
+    elif technical_score <= 3.2:
+        advice = "减仓"
+    else:
+        advice = "观望"
+
+    ideal_low = max(low_60, support - atr * 0.35)
+    ideal_high = support + atr * 0.35
+    acceptable_low = ideal_high
+    acceptable_high = min(close, ma20 + atr * 0.5) if close > ideal_high else ideal_high + atr
+    acceptable_high = max(acceptable_low, acceptable_high)
+    chase_low = max(close + atr, pressure - atr * 0.3)
+    stop = max(0, min(low_60, support - atr * 1.3))
+    target_1 = max(close + atr, pressure)
+    target_2 = max(high_60, target_1 + atr * 2)
+
+    pe_text = f"{quote['pe']:.2f}" if quote["pe"] > 0 else "缺失"
+    pb_text = f"{quote['pb']:.2f}" if quote["pb"] > 0 else "缺失"
+    valuation_notes.append(f"当前 PE 为 {pe_text}、PB 为 {pb_text}；PS、PEG、历史估值分位及同行估值数据缺失，因此估值判断偏保守。")
+    trend = "上涨" if close > ma20 > ma50 else "下跌" if close < ma20 < ma50 else "震荡"
+    kd_text = "偏强" if latest["kdjk"] > latest["kdjd"] else "偏弱"
+    position = "轻仓 10%-20%"
+    investor = "风险承受能力一般、愿意等待技术确认的投资者"
+    if advice == "谨慎买入":
+        position, investor = "中仓 20%-40%，分批建仓", "能承受中等波动、严格执行止损的投资者"
+    elif advice == "强烈买入":
+        position, investor = "中仓 30%-50%，不建议一次性重仓", "风险承受能力较高且有纪律的投资者"
+    elif advice in ("减仓", "回避"):
+        position, investor = "不新开仓；已有仓位降至 0%-10%", "仅适合高风险承受能力投资者观察"
+
+    return {
+        "fundamental": [
+            ("公司主营业务", profile.get("主营业务") or "数据缺失。"),
+            ("收入和利润增长", f"报告期 {financials.get('period', '未知')}：营业收入 {_metric(financials, '营业总收入', '亿')}，同比 {_metric(financials, '营业总收入增长率', '%')}；归母净利润 {_metric(financials, '归母净利润', '亿')}，同比 {_metric(financials, '归属母公司净利润增长率', '%')}。"),
+            ("盈利质量", f"毛利率 {_metric(financials, '毛利率', '%')}，净利率 {_metric(financials, '销售净利率', '%')}，ROE {_metric(financials, '净资产收益率(ROE)', '%')}，经营现金流 {_metric(financials, '经营现金流量净额', '亿')}。"),
+            ("负债与财务风险", f"资产负债率 {_metric(financials, '资产负债率', '%')}，流动比率 {_metric(financials, '流动比率')}，速动比率 {_metric(financials, '速动比率')}。"),
+            ("管理层与竞争优势", f"法人代表：{profile.get('法人代表') or '数据缺失'}。竞争优势需结合品牌、渠道、技术与公告进一步判断。"),
+        ],
+        "industry": [
+            ("所属行业与地位", f"巨潮行业分类：{profile.get('所属行业') or '数据缺失'}；所属市场：{profile.get('所属市场') or '数据缺失'}；入选指数：{profile.get('入选指数') or '数据缺失'}。"),
+            ("行业景气度与空间", "当前未接入行业增速和同行横向财务数据，行业景气度仍按中性偏谨慎处理。"),
+            ("政策与竞争格局", "已接入巨潮公告用于追踪政策及公司事件，但主要竞争对手与市场份额仍需进一步核验。"),
+        ],
+        "valuation": valuation_notes,
+        "technical": [
+            ("当前趋势", f"{trend}；现价 {close:.2f}，MA20 为 {ma20:.2f}，MA50 为 {ma50:.2f}。"),
+            ("关键支撑位", f"{support:.2f}，依据近20/60日低点、MA20与布林下轨综合计算。"),
+            ("关键压力位", f"{pressure:.2f}，依据近20/60日高点与布林上轨综合计算。"),
+            ("成交量", f"最新量能约为近5日均量的 {summary['volume_ratio']:.2f} 倍。"),
+            ("MACD / RSI / KDJ", f"MACD柱 {summary['macdh']:.3f}，RSI {summary['rsi']:.2f}，KDJ 为 {kd_text}（K {summary['kdjk']:.2f} / D {summary['kdjd']:.2f} / J {summary['kdjj']:.2f}）。"),
+        ],
+        "funds": [
+            ("主力与机构", "主力资金流向、机构持仓变化数据缺失，不将短期上涨直接视为机构买入。"),
+            ("市场关注度", f"换手率 {quote['turnover']:.2f}%，量比 {quote['volume_ratio']:.2f}，以此作为有限的市场热度参考。"),
+            ("公告与炒作风险", f"巨潮资讯近期开示公告 {len(notices)} 条；高换手或量比显著升高时仍需警惕短期炒作。"),
+        ],
+        "risks": [
+            "财务摘要来自 AKShare，需以公司正式定期报告为准，仍存在业绩不及预期风险。",
+            "行业增速、市场份额及竞争对手数据尚未完整接入，行业周期与政策风险无法充分量化。",
+            f"ATR 波动率约 {summary['atr_percent']:.2f}%，价格跌破 {stop:.2f} 时技术结构将明显恶化。",
+            "估值历史分位、机构持仓和完整新闻情绪仍缺失，存在估值回落、流动性及黑天鹅风险。",
+        ],
+        "profile": profile, "financials": financials, "notices": notices,
+        "data_errors": extra["errors"], "sources": extra["sources"],
+        "scores": scores, "advice": advice,
+        "prices": {
+            "理想买入区间": _range(ideal_low, ideal_high),
+            "可接受买入区间": _range(acceptable_low, acceptable_high),
+            "不建议追高区间": f"{chase_low:.2f} 以上",
+            "止损位": f"{stop:.2f}", "第一目标价": f"{target_1:.2f}", "第二目标价": f"{target_2:.2f}",
+        },
+        "position": position, "investor": investor,
+        "one_line": f"当前建议为“{advice}”；优先在 {_range(ideal_low, ideal_high)} 分批考虑，建议{position}。",
     }
 
 
@@ -208,4 +363,9 @@ def build_chart(data, code, name):
 def analyze_stock(code):
     quote = fetch_quote(code)
     data = calculate_indicators(fetch_history(code))
-    return {"quote": quote, "summary": build_summary(data), "chart": build_chart(data, code, quote["name"])}
+    summary = build_summary(data)
+    extra = fetch_extra_data(code)
+    return {
+        "quote": quote, "summary": summary, "report": build_report(quote, data, summary, extra),
+        "chart": build_chart(data, code, quote["name"]),
+    }

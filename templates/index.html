@@ -17,7 +17,9 @@
   .positive{color:#dc2626}.negative{color:#16a34a}.neutral{color:#475569}.signals{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
   .signal{border-left:4px solid #94a3b8;background:#f8fafc;padding:12px;border-radius:4px}.signal.positive{border-color:#dc2626}.signal.negative{border-color:#16a34a}
   table{width:100%;border-collapse:collapse}th,td{border:1px solid #e2e8f0;padding:10px;text-align:left}th{background:#f8fafc}
-  .tables{display:grid;grid-template-columns:1fr 1fr;gap:14px}.note{color:#64748b;font-size:13px}
+  .tables{display:grid;grid-template-columns:1fr 1fr;gap:14px}.note{color:#64748b;font-size:13px}.section-title{border-bottom:2px solid #dbeafe;padding-bottom:9px;margin-top:0}
+  .analysis-list{margin:0;padding-left:22px}.analysis-list li{margin:9px 0;line-height:1.7}.decision{font-size:26px;font-weight:800}.summary-line{background:#172554;color:#fff;padding:18px;border-radius:9px;font-size:18px;font-weight:700}
+  .source{display:inline-block;background:#dbeafe;color:#1e40af;padding:4px 9px;border-radius:12px;margin-right:6px}.notice a{color:#1d4ed8;text-decoration:none}.notice a:hover{text-decoration:underline}
   @media(max-width:800px){.cards,.signals,.tables{grid-template-columns:1fr}.hero{display:block}.price{text-align:left;margin-top:14px}.search{display:grid}}
   </style>
 </head>
@@ -29,7 +31,7 @@
   <main class="wrap">
     {% if error %}<div class="alert">{{ error }}</div>{% end %}
     {% if result %}
-      {% set quote = result["quote"] %}{% set summary = result["summary"] %}
+      {% set quote = result["quote"] %}{% set summary = result["summary"] %}{% set report = result["report"] %}
       <section class="hero"><div><h2>{{ quote["name"] }} <small>{{ quote["code"] }}</small></h2><div class="label">行情更新时间：{{ quote["updated_at"] }}　指标数据日：{{ summary["date"] }}</div></div>
       <div class="price {{ 'positive' if quote['change_percent'] >= 0 else 'negative' }}">{{ quote["price"] }}<div style="font-size:17px">{{ quote["change"] }} / {{ quote["change_percent"] }}%</div></div></section>
       <section class="cards">
@@ -38,15 +40,24 @@
         <div class="card"><div class="label">市盈率 / 市净率</div><div class="value">{{ quote["pe"] }} / {{ quote["pb"] }}</div></div>
         <div class="card"><div class="label">总市值 / 量比</div><div class="value">{{ quote["market_cap"] }} 亿 / {{ quote["volume_ratio"] }}</div></div>
       </section>
-      <section class="panel"><h3>综合技术结论：<span class="{{ summary['verdict_tone'] }}">{{ summary["verdict"] }}</span></h3><div class="signals">
-      {% for signal in summary["signals"] %}<div class="signal {{ signal['tone'] }}"><b>{{ signal["label"] }} · {{ signal["result"] }}</b><div>{{ signal["detail"] }}</div></div>{% end %}
-      </div></section>
-      <section class="tables">
-        <div class="panel"><table><tr><th>近20日涨跌</th><td>{{ summary["change_20"] }}%</td><th>近60日涨跌</th><td>{{ summary["change_60"] }}%</td></tr><tr><th>MA20</th><td>{{ summary["ma20"] }}</td><th>MA50</th><td>{{ summary["ma50"] }}</td></tr><tr><th>MA200</th><td>{{ summary["ma200"] }}</td><th>RSI(14)</th><td>{{ summary["rsi"] }}</td></tr><tr><th>60日高/低</th><td colspan="3">{{ summary["high_60"] }} / {{ summary["low_60"] }}</td></tr></table></div>
-        <div class="panel"><table><tr><th>MACD DIF</th><td>{{ summary["macd"] }}</td><th>DEA</th><td>{{ summary["macds"] }}</td></tr><tr><th>MACD柱</th><td>{{ summary["macdh"] }}</td><th>ATR</th><td>{{ summary["atr_percent"] }}%</td></tr><tr><th>布林上/中/下</th><td colspan="3">{{ summary["boll_upper"] }} / {{ summary["boll_middle"] }} / {{ summary["boll_lower"] }}</td></tr><tr><th>涨停 / 跌停</th><td colspan="3">{{ quote["limit_up"] }} / {{ quote["limit_down"] }}</td></tr></table></div>
+      <section class="panel"><h2 class="section-title">1. 基本面分析</h2><ul class="analysis-list">{% for label, text in report["fundamental"] %}<li><b>{{ label }}：</b>{{ text }}</li>{% end %}</ul></section>
+      <section class="panel"><h2 class="section-title">2. 行业分析</h2><ul class="analysis-list">{% for label, text in report["industry"] %}<li><b>{{ label }}：</b>{{ text }}</li>{% end %}</ul></section>
+      <section class="panel"><h2 class="section-title">3. 估值分析</h2><ul class="analysis-list">{% for text in report["valuation"] %}<li>{{ text }}</li>{% end %}</ul><table><tr><th>PE</th><td>{{ quote["pe"] }}</td><th>PB</th><td>{{ quote["pb"] }}</td><th>PS / PEG</th><td>数据缺失</td></tr></table></section>
+      <section class="panel"><h2 class="section-title">4. 技术面分析</h2><ul class="analysis-list">{% for label, text in report["technical"] %}<li><b>{{ label }}：</b>{{ text }}</li>{% end %}</ul><div class="signals">{% for signal in summary["signals"] %}<div class="signal {{ signal['tone'] }}"><b>{{ signal["label"] }} · {{ signal["result"] }}</b><div>{{ signal["detail"] }}</div></div>{% end %}</div></section>
+      <section class="panel"><h2 class="section-title">5. 资金面与情绪分析</h2><ul class="analysis-list">{% for label, text in report["funds"] %}<li><b>{{ label }}：</b>{{ text }}</li>{% end %}</ul></section>
+      <section class="panel"><h2 class="section-title">巨潮资讯最新公告</h2>
+      {% if report["notices"] %}<table class="notice"><tr><th>日期</th><th>公告标题</th></tr>{% for notice in report["notices"] %}<tr><td>{{ notice["date"] }}</td><td><a href="{{ notice['url'] }}" target="_blank">{{ notice["title"] }}</a></td></tr>{% end %}</table>{% else %}<p>暂未获取到近期公告。</p>{% end %}
       </section>
+      <section class="panel"><h2 class="section-title">6. 风险分析</h2><ul class="analysis-list">{% for text in report["risks"] %}<li>{{ text }}</li>{% end %}</ul></section>
+      <section class="panel"><h2 class="section-title">7. 综合评分</h2><table>{% for label, score in report["scores"].items() %}<tr><th>{{ label }}</th><td><b>{{ score }} / 10</b></td></tr>{% end %}</table></section>
+      <section class="panel"><h2 class="section-title">8. 最终投资建议</h2><div class="decision">{{ report["advice"] }}</div><p>依据：综合基本面数据完整度、估值、技术走势、资金热度与风险控制评分，仅从指定五种结论中选择。</p></section>
+      <section class="panel"><h2 class="section-title">9. 买入价格区间</h2><table>{% for label, price in report["prices"].items() %}<tr><th>{{ label }}</th><td><b>{{ price }}</b></td></tr>{% end %}</table><p class="note">价格区间依据 ATR、均线、布林带及近20/60日支撑压力计算，会随行情变化。</p></section>
+      <section class="panel"><h2 class="section-title">10. 仓位建议</h2><p><b>建议仓位：</b>{{ report["position"] }}</p><p><b>适合投资者：</b>{{ report["investor"] }}</p><p>由于财报、行业、机构持仓和新闻数据不完整，不建议重仓。</p></section>
       <section class="panel">{% raw result["chart"]["div"] %}{% raw result["chart"]["script"] %}</section>
-      <p class="note">行情来自公开网络数据源，可能存在延迟。技术指标仅作辅助分析，不构成投资建议。</p>
+      <div class="summary-line">一句话总结：{{ report["one_line"] }}</div>
+      <p>{% for source in report["sources"] %}<span class="source">{{ source }}</span>{% end %}</p>
+      {% if report["data_errors"] %}<div class="alert"><b>部分数据获取失败：</b>{% for item in report["data_errors"] %}<div>{{ item }}</div>{% end %}</div>{% end %}
+      <p class="note">行情与财务数据来自公开网络数据源，可能存在延迟。正式信息请以巨潮资讯及公司公告为准；分析结果不构成投资建议。</p>
     {% end %}
   </main>
 </body>

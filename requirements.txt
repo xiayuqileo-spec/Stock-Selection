@@ -3,3 +3,4 @@ pandas>=2.0
 requests>=2.30
 bokeh>=3.8
 tornado>=6.5
+akshare>=1.18.64
