@@ -5,5 +5,10 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
-    healthCheckPath: /
+    healthCheckPath: /health
     autoDeploy: true
+    envVars:
+      - key: SITE_USERNAME
+        value: admin
+      - key: SITE_PASSWORD
+        sync: false
